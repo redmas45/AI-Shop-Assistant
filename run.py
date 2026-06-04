@@ -150,7 +150,8 @@ def init_database():
     init_db()
 
     with get_db() as conn:
-        count = conn.execute("SELECT COUNT(*) FROM products").fetchone()[0]
+        row = conn.execute("SELECT COUNT(*) FROM products").fetchone()
+        count = row["count"] if isinstance(row, dict) else row[0]
 
     if count == 0:
         warn("No products found — seeding catalog…")

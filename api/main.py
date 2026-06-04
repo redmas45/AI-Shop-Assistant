@@ -56,8 +56,8 @@ async def lifespan(app: FastAPI):
     """Initialise database, seed data, and build FAISS index on startup."""
     logger.info("🚀 Starting Voice Shopping Agent API…")
 
-    # Ensure DB directory exists
-    config.DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+    # Ensure Postgres connection is valid
+    # Init schema
 
     # Init schema
     init_db()
@@ -65,7 +65,8 @@ async def lifespan(app: FastAPI):
     # Seed if empty
     from db.database import get_db
     with get_db() as conn:
-        count = conn.execute("SELECT COUNT(*) FROM products").fetchone()[0]
+        row = conn.execute("SELECT COUNT(*) FROM products").fetchone()
+        count = row["count"] if isinstance(row, dict) else row[0]
     if count == 0:
         logger.info("Database empty — seeding with sample products…")
         seed_db()
