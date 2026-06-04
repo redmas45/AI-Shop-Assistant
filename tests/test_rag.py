@@ -7,15 +7,14 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 import pytest
 from db.database import init_db
 from db.seed import seed
-from agent.rag import build_index, retrieve
+from agent.rag import retrieve
 
 
 @pytest.fixture(scope="module", autouse=True)
 def setup_db_and_index():
-    """Ensure DB is seeded and index is built before RAG tests."""
+    """Ensure DB is seeded before RAG tests."""
     init_db()
     seed()
-    build_index()
 
 
 class TestRAGRetrieval:

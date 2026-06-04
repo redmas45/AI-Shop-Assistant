@@ -1,37 +1,39 @@
 """
-SQLite database connection helpers.
-Uses WAL mode for concurrent reads from multiple threads.
+PostgreSQL database connection helpers.
+Uses psycopg 3 thread-local connections.
 """
-import sqlite3
 import threading
 from pathlib import Path
 from contextlib import contextmanager
 from typing import Generator
 
+import psycopg
+from psycopg.rows import dict_row
+
 import config
+from pgvector.psycopg import register_vector
 
 # Thread-local storage for connections
 _local = threading.local()
 
-
-def _get_connection() -> sqlite3.Connection:
-    """Return a thread-local SQLite connection, creating one if needed."""
-    if not hasattr(_local, "conn") or _local.conn is None:
-        conn = sqlite3.connect(
-            str(config.DB_PATH),
-            check_same_thread=False,
-            detect_types=sqlite3.PARSE_DECLTYPES,
+def _get_connection() -> psycopg.Connection:
+    """Return a thread-local Postgres connection, creating one if needed."""
+    if not hasattr(_local, "conn") or _local.conn is None or _local.conn.closed:
+        conn = psycopg.connect(
+            config.DATABASE_URL,
+            row_factory=dict_row
         )
-        conn.row_factory = sqlite3.Row
-        conn.execute("PRAGMA journal_mode=WAL")
-        conn.execute("PRAGMA foreign_keys=ON")
-        conn.execute("PRAGMA synchronous=NORMAL")
+        # Ensure extension exists before registering it
+        conn.execute("CREATE EXTENSION IF NOT EXISTS vector")
+        conn.commit()
+        # Register pgvector type
+        register_vector(conn)
         _local.conn = conn
     return _local.conn
 
 
 @contextmanager
-def get_db() -> Generator[sqlite3.Connection, None, None]:
+def get_db() -> Generator[psycopg.Connection, None, None]:
     """Context manager that yields a DB connection and commits/rolls back."""
     conn = _get_connection()
     try:
@@ -47,7 +49,7 @@ def init_db() -> None:
     schema_path = Path(__file__).parent / "schema.sql"
     schema_sql = schema_path.read_text(encoding="utf-8")
     with get_db() as conn:
-        conn.executescript(schema_sql)
+        conn.execute(schema_sql)
 
 
 def get_all_products(limit: int = 10000, offset: int = 0) -> list[dict]:
@@ -65,18 +67,18 @@ def get_all_products(limit: int = 10000, offset: int = 0) -> list[dict]:
             JOIN categories c ON p.category_id = c.id
             WHERE p.rn <= 1000
             ORDER BY RANDOM()
-            LIMIT ? OFFSET ?
+            LIMIT %s OFFSET %s
             """,
             (limit, offset)
         ).fetchall()
-    return [dict(row) for row in rows]
+    return rows
 
 
 def get_products_by_ids(ids: list[int]) -> list[dict]:
     """Return products matching given IDs."""
     if not ids:
         return []
-    placeholders = ",".join("?" * len(ids))
+    placeholders = ",".join("%s" for _ in ids)
     with get_db() as conn:
         rows = conn.execute(
             f"""
@@ -87,7 +89,7 @@ def get_products_by_ids(ids: list[int]) -> list[dict]:
             """,
             ids,
         ).fetchall()
-    return [dict(row) for row in rows]
+    return rows
 
 
 def get_products_by_category(category_name: str, limit: int = 50) -> list[dict]:
@@ -98,20 +100,19 @@ def get_products_by_category(category_name: str, limit: int = 50) -> list[dict]:
             SELECT p.*, c.name AS category_name, c.slug AS category_slug
             FROM products p
             JOIN categories c ON p.category_id = c.id
-            WHERE (c.name = ? OR p.tags LIKE ?) AND p.is_active = 1
-            LIMIT ?
+            WHERE (c.name = %s OR p.tags LIKE %s) AND p.is_active = 1
+            LIMIT %s
             """,
-            (category_name, f'%"{category_name}"%', limit),
+            (category_name, f'%%"{category_name}"%%', limit),
         ).fetchall()
-    return [dict(row) for row in rows]
-
+    return rows
 
 
 def product_exists(product_id: int) -> bool:
     """Check whether a product ID exists and is active."""
     with get_db() as conn:
         row = conn.execute(
-            "SELECT 1 FROM products WHERE id = ? AND is_active = 1", (product_id,)
+            "SELECT 1 FROM products WHERE id = %s AND is_active = 1", (product_id,)
         ).fetchone()
     return row is not None
 
@@ -130,43 +131,44 @@ def get_cart_items() -> list[dict]:
             ORDER BY c.added_at DESC
             """
         ).fetchall()
-    return [dict(row) for row in rows]
+    return rows
 
 
 def add_to_cart(product_id: int, quantity: int = 1) -> int:
     """Add a product to the cart or increment quantity if it exists."""
     with get_db() as conn:
         # Check if already in cart
-        row = conn.execute("SELECT id, quantity FROM cart WHERE product_id = ?", (product_id,)).fetchone()
+        row = conn.execute("SELECT id, quantity FROM cart WHERE product_id = %s", (product_id,)).fetchone()
         if row:
             new_qty = row["quantity"] + quantity
-            conn.execute("UPDATE cart SET quantity = ? WHERE id = ?", (new_qty, row["id"]))
+            conn.execute("UPDATE cart SET quantity = %s WHERE id = %s", (new_qty, row["id"]))
             return row["id"]
         else:
-            cursor = conn.execute(
-                "INSERT INTO cart (product_id, quantity) VALUES (?, ?)",
+            row = conn.execute(
+                "INSERT INTO cart (product_id, quantity) VALUES (%s, %s) RETURNING id",
                 (product_id, quantity)
-            )
-            return cursor.lastrowid
+            ).fetchone()
+            return row["id"]
 
 
 def update_cart_quantity(product_id: int, quantity: int) -> bool:
     """Update quantity of a specific product in the cart. If <= 0, remove it."""
     with get_db() as conn:
-        row = conn.execute("SELECT id FROM cart WHERE product_id = ?", (product_id,)).fetchone()
+        row = conn.execute("SELECT id FROM cart WHERE product_id = %s", (product_id,)).fetchone()
         if not row:
             return False
             
         if quantity <= 0:
-            cursor = conn.execute("DELETE FROM cart WHERE id = ?", (row["id"],))
+            cursor = conn.execute("DELETE FROM cart WHERE id = %s", (row["id"],))
         else:
-            cursor = conn.execute("UPDATE cart SET quantity = ? WHERE id = ?", (quantity, row["id"]))
+            cursor = conn.execute("UPDATE cart SET quantity = %s WHERE id = %s", (quantity, row["id"]))
             
         return cursor.rowcount > 0
+
 def remove_from_cart(cart_id: int) -> bool:
     """Remove a specific item from the cart."""
     with get_db() as conn:
-        cursor = conn.execute("DELETE FROM cart WHERE id = ?", (cart_id,))
+        cursor = conn.execute("DELETE FROM cart WHERE id = %s", (cart_id,))
         return cursor.rowcount > 0
 
 
@@ -182,7 +184,7 @@ def get_user_profile() -> dict:
     with get_db() as conn:
         row = conn.execute("SELECT address, payment_method FROM user_profile WHERE id = 1").fetchone()
         if row:
-            return dict(row)
+            return row
         return {"address": None, "payment_method": None}
 
 def update_user_profile(address: str, payment_method: str) -> None:
@@ -191,11 +193,11 @@ def update_user_profile(address: str, payment_method: str) -> None:
         row = conn.execute("SELECT id FROM user_profile WHERE id = 1").fetchone()
         if row:
             conn.execute(
-                "UPDATE user_profile SET address = ?, payment_method = ? WHERE id = 1",
+                "UPDATE user_profile SET address = %s, payment_method = %s WHERE id = 1",
                 (address, payment_method)
             )
         else:
             conn.execute(
-                "INSERT INTO user_profile (id, address, payment_method) VALUES (1, ?, ?)",
+                "INSERT INTO user_profile (id, address, payment_method) VALUES (1, %s, %s)",
                 (address, payment_method)
             )

@@ -35,11 +35,9 @@ HOST: str = os.getenv("HOST", "0.0.0.0")
 PORT: int = int(os.getenv("PORT", "8000"))
 CORS_ORIGINS: list[str] = os.getenv("CORS_ORIGINS", "*").split(",")
 
-# ── Paths ────────────────────────────────────────────────
+# ── Database ───────────────────────────────────────────────
+DATABASE_URL: str = os.getenv("DATABASE_URL", "postgresql://shopbot:shopbot_password@localhost:5433/shopping_db")
 BASE_DIR = Path(__file__).parent
-DB_PATH: Path = BASE_DIR / os.getenv("DB_PATH", "db/products.db")
-INDEX_PATH: Path = BASE_DIR / os.getenv("INDEX_PATH", "db/products.index")
-INDEX_IDS_PATH: Path = BASE_DIR / os.getenv("INDEX_IDS_PATH", "db/product_ids.json")
 
 # ── Guardrail Settings ───────────────────────────────────
 MAX_TRANSCRIPT_CHARS: int = 2000

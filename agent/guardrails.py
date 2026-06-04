@@ -69,8 +69,11 @@ _OFFENSIVE_PATTERN = re.compile(
 )
 
 
-# PII Patterns (Disabled for e-commerce checkout flow)
-_PII_PATTERNS = []
+# PII Patterns
+_PII_PATTERNS = [
+    (re.compile(r'\b\d{10}\b'), "[PHONE]"),
+    (re.compile(r'\b[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+\b'), "[EMAIL]")
+]
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -117,6 +120,10 @@ def validate_input(transcript: str) -> str:
         raise InputGuardrailError(
             "Let's keep things family-friendly while we shop! 😊 What were you looking to buy today?"
         )
+
+    # Redact PII
+    for pattern, replacement in _PII_PATTERNS:
+        transcript = pattern.sub(replacement, transcript)
 
     return transcript
 

@@ -22,7 +22,6 @@ from fastapi.staticfiles import StaticFiles
 
 import config
 from agent import orchestrator
-from agent.rag import build_index
 from api.middleware import RequestTracingMiddleware
 from api.models import (
     HealthResponse, ProductResponse, ShopResponse, 
@@ -70,11 +69,6 @@ async def lifespan(app: FastAPI):
     if count == 0:
         logger.info("Database empty — seeding with sample products…")
         seed_db()
-
-    # Build FAISS index if missing
-    if not config.INDEX_PATH.exists():
-        logger.info("FAISS index not found — building…")
-        build_index()
 
     # Preload RAG embedder and index into memory
     from agent import rag
@@ -445,19 +439,6 @@ async def api_checkout_cart(req: CheckoutRequest):
         logger.error("POST /v1/cart/checkout failed: %s", exc)
         raise HTTPException(status_code=500, detail="Failed to process checkout.")
 
-
-@app.post("/v1/rebuild-index", tags=["Admin"])
-async def rebuild_index():
-    """
-    **Admin endpoint.** Rebuild the FAISS vector index from the current product catalog.
-    Call this after adding or updating products in the database.
-    """
-    try:
-        build_index()
-        return {"status": "ok", "message": "FAISS index rebuilt successfully."}
-    except Exception as exc:
-        logger.error("Index rebuild failed: %s", exc)
-        raise HTTPException(status_code=500, detail=f"Index rebuild failed: {exc}")
 
 
 # ── Static Files ──────────────────────────────────────────────────────────────

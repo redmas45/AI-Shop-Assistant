@@ -5,16 +5,14 @@ What this does automatically:
   1. Checks Python version
   2. Installs missing dependencies from requirements.txt
   3. Validates .env / GROQ_API_KEY
-  4. Initialises the SQLite database + seeds 50 products
-  5. Builds the FAISS vector index (if missing or stale)
-  6. Starts the FastAPI server via uvicorn
-  7. Opens the demo in your browser
+  4. Initialises the Postgres database + seeds 50 products
+  5. Starts the FastAPI server via uvicorn
+  6. Opens the demo in your browser
 
 Usage:
     python run.py
     python run.py --port 8080
     python run.py --no-browser
-    python run.py --rebuild-index
 """
 
 import argparse
@@ -46,7 +44,7 @@ def dim(t):     return c(t, "2")
 BANNER = f"""
 {cyan('+--------------------------------------------------+')}
 {cyan('|')}   {bold('ShopBot  --  Voice AI Shopping Assistant')}      {cyan('|')}
-{cyan('|')}   {dim('Powered by Groq  |  FAISS  |  FastAPI')}         {cyan('|')}
+{cyan('|')}   {dim('Powered by Groq  |  PostgreSQL  |  FastAPI')}      {cyan('|')}
 {cyan('+--------------------------------------------------+')}
 """
 
@@ -92,9 +90,8 @@ def install_dependencies():
     if not req.exists():
         fail("requirements.txt not found.")
 
-    # Try importing a key package to see if deps are installed
     try:
-        import fastapi, groq, faiss, sentence_transformers  # noqa
+        import fastapi, groq, psycopg, sentence_transformers, pgvector  # noqa
         ok("All core dependencies already installed.")
         return
     except ImportError:
@@ -160,28 +157,14 @@ def init_database():
         from db.seed import seed
         seed()
         with get_db() as conn:
-            count = conn.execute("SELECT COUNT(*) FROM products").fetchone()[0]
+            row = conn.execute("SELECT COUNT(*) FROM products").fetchone()
+            count = row["count"] if isinstance(row, dict) else row[0]
         ok(f"Seeded {count} products into database.")
     else:
         ok(f"Database ready — {count} products loaded.")
 
 
-def build_vector_index(force: bool = False):
-    step("Building FAISS vector index")
-    import config
 
-    if not force and config.INDEX_PATH.exists() and config.INDEX_IDS_PATH.exists():
-        # Check if index is newer than DB
-        idx_mtime = config.INDEX_PATH.stat().st_mtime
-        db_mtime  = config.DB_PATH.stat().st_mtime if config.DB_PATH.exists() else 0
-        if idx_mtime >= db_mtime:
-            ok("FAISS index is up-to-date — skipping rebuild.")
-            return
-
-    warn("Building index (this may take ~30s on first run)…")
-    from agent.rag import build_index
-    build_index()
-    ok("FAISS index built and saved.")
 
 
 def check_port(port: int) -> bool:
@@ -262,13 +245,11 @@ Examples:
   python run.py                    Start on default port 8000
   python run.py --port 8080        Start on port 8080
   python run.py --no-browser       Don't auto-open the browser
-  python run.py --rebuild-index    Force rebuild FAISS index
   python run.py --no-reload        Disable auto-reload (production mode)
         """,
     )
     parser.add_argument("--port",          type=int, default=8000,    help="Server port (default: 8000)")
     parser.add_argument("--no-browser",    action="store_true",       help="Skip auto-opening the browser")
-    parser.add_argument("--rebuild-index", action="store_true",       help="Force rebuild FAISS vector index")
     parser.add_argument("--no-reload",     action="store_true",       help="Disable uvicorn auto-reload")
     return parser.parse_args()
 
@@ -282,7 +263,6 @@ def main():
         install_dependencies()
         check_env()
         init_database()
-        build_vector_index(force=args.rebuild_index)
         print(f"\n  {green('✔')} {bold('All checks passed! Launching server…')}")
         launch_server(
             port=args.port,

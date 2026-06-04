@@ -1,6 +1,6 @@
 """
 Seed the database with products from the local products.json file.
-Run: python db/seed.py
+Run: python -m db.seed
 """
 import json
 import sys
@@ -10,7 +10,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from db.database import init_db, get_db  # noqa: E402
-
+from agent.rag import _product_to_text, _embed # noqa: E402
 
 def format_category_name(slug: str) -> str:
     mapping = {
@@ -43,7 +43,7 @@ def format_category_name(slug: str) -> str:
 
 
 def seed():
-    """Read products.json and seed the SQLite database."""
+    """Read products.json and seed the Postgres database."""
     json_path = Path(__file__).parent.parent / "products.json"
     if not json_path.exists():
         print(f"Error: {json_path} does not exist.")
@@ -66,11 +66,7 @@ def seed():
 
     with get_db() as conn:
         # Clear existing data first
-        conn.execute("DELETE FROM cart")
-        conn.execute("DELETE FROM products")
-        conn.execute("DELETE FROM categories")
-        conn.execute("DELETE FROM sqlite_sequence WHERE name IN ('products', 'categories', 'cart')")
-        conn.commit()
+        conn.execute("TRUNCATE products, categories, cart RESTART IDENTITY CASCADE")
 
         # Insert categories dynamically
         categories = set(p["category"] for p in products)
@@ -78,35 +74,63 @@ def seed():
         for cat_slug in categories:
             cat_name = format_category_name(cat_slug)
             conn.execute(
-                "INSERT OR IGNORE INTO categories (name, slug) VALUES (?, ?)",
+                "INSERT INTO categories (name, slug) VALUES (%s, %s) ON CONFLICT (slug) DO NOTHING",
                 (cat_name, cat_slug),
             )
             # Fetch inserted ID
-            row = conn.execute("SELECT id FROM categories WHERE slug = ?", (cat_slug,)).fetchone()
-            cat_id_map[cat_slug] = row[0]
+            row = conn.execute("SELECT id FROM categories WHERE slug = %s", (cat_slug,)).fetchone()
+            cat_id_map[cat_slug] = row["id"] if isinstance(row, dict) else row[0]
 
-        # Insert products
+        # Process embeddings in a batch to save time
+        print("Computing embeddings for all products...")
+        product_texts = []
         for p in products:
-            cat_id = cat_id_map[p["category"]]
-            
-            # Map images & tags
             img_list = p.get("images", [])
             img_url = json.dumps(img_list) if img_list else ""
             
-            # Combine tags and category for rich tags
+            item_tags = p.get("tags", [])
+            if p["category"] not in item_tags:
+                item_tags.append(p["category"])
+            tags_str = json.dumps(item_tags)
+
+            usd_price = p.get("price", 0.0)
+            inr_price = round(usd_price * 80, 2)
+
+            # Reconstruct the product dict locally to match what _product_to_text expects
+            temp_p = {
+                "name": p["title"],
+                "brand": p.get("brand", "AI-KART"),
+                "category_name": format_category_name(p["category"]),
+                "description": p["description"],
+                "price": inr_price,
+                "color": "",
+                "tags": tags_str,
+                "rating": p.get("rating", 4.0)
+            }
+            product_texts.append(_product_to_text(temp_p))
+
+        # Get all embeddings in one shot
+        embeddings = _embed(product_texts)
+
+        # Insert products
+        print("Inserting products with embeddings into database...")
+        for i, p in enumerate(products):
+            cat_id = cat_id_map[p["category"]]
+            
+            img_list = p.get("images", [])
+            img_url = json.dumps(img_list) if img_list else ""
+            
             item_tags = p.get("tags", [])
             if p["category"] not in item_tags:
                 item_tags.append(p["category"])
             tags_str = json.dumps(item_tags)
             
-            # Convert price to realistic INR (scale by 80)
             usd_price = p.get("price", 0.0)
             inr_price = round(usd_price * 80, 2)
             original_price = round(inr_price * (1 + p.get("discountPercentage", 10.0) / 100), 2)
             
-            # Extract rating, review count, stock
             rating = p.get("rating", 4.0)
-            review_count = len(p.get("reviews", [])) * 15 + 10  # realistic count
+            review_count = len(p.get("reviews", [])) * 15 + 10
             stock = p.get("stock", 100)
             brand = p.get("brand", "AI-KART")
             
@@ -114,13 +138,14 @@ def seed():
                 """
                 INSERT INTO products
                   (name, brand, category_id, description, price, original_price,
-                   color, size_options, tags, rating, review_count, stock, image_url, is_active)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
+                   color, size_options, tags, rating, review_count, stock, image_url, is_active, embedding)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 1, %s)
                 """,
                 (
                     p["title"], brand, cat_id, p["description"],
                     inr_price, original_price, "", "[]",
-                    tags_str, rating, review_count, stock, img_url
+                    tags_str, rating, review_count, stock, img_url,
+                    embeddings[i]
                 ),
             )
 
