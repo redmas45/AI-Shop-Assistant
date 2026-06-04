@@ -1,11 +1,13 @@
 # 🛍️ ShopBot — Voice AI Shopping Assistant
 
 A production-ready voice-enabled AI shopping assistant for e-commerce websites.  
-Customers speak naturally → the system understands intent → retrieves products → controls the website in real-time → responds with voice.
+Customers speak naturally → the system understands intent → retrieves products using vector search → controls the website in real-time → responds with voice.
 
 ---
 
 ## Architecture
+
+Our robust architecture leverages a **modular, multi-model approach** to ensure a highly resilient, fail-safe scenario. Instead of relying on a single monolithic AI, we split the pipeline across specialized models (STT, LLM, TTS, Embeddings) and use a robust PostgreSQL backend for hybrid search fallbacks.
 
 ```
 Customer Audio (WAV/WebM/MP3)
@@ -22,13 +24,13 @@ Customer Audio (WAV/WebM/MP3)
            │ safe_text
            ▼
 ┌─────────────────────┐
-│  3. RAG Retrieval   │  FAISS + sentence-transformers (384-dim)
-│     (FAISS index)   │  Top-K=10 → re-ranked → Top-3 context
+│  3. RAG Retrieval   │  PostgreSQL (pgvector) + sentence-transformers
+│     (Vector DB)     │  Cosine similarity + structured SQL fallbacks
 └──────────┬──────────┘
            │ product_context
            ▼
 ┌─────────────────────┐
-│  4. LLM Agent       │  groq: llama-3.3-70b-versatile  (JSON mode)
+│  4. LLM Agent       │  groq: llama-3.3-70b-versatile (JSON mode)
 │  System Prompt +    │  → {response_text, intent, ui_actions}
 │  Few-shot examples  │
 └──────────┬──────────┘
@@ -53,55 +55,26 @@ Customer Audio (WAV/WebM/MP3)
 
 ## Tech Stack
 
-| Layer       | Technology                              |
-|-------------|------------------------------------------|
-| STT         | `whisper-large-v3-turbo` via Groq        |
-| LLM         | `llama-3.3-70b-versatile` via Groq       |
-| TTS         | `canopylabs/orpheus-v1-english` via Groq |
-| Embeddings  | `all-MiniLM-L6-v2` (384-dim)            |
-| Vector DB   | FAISS (IndexFlatIP, cosine similarity)   |
-| Database    | SQLite (WAL mode)                        |
-| API         | FastAPI + Uvicorn                        |
-| Frontend    | Vanilla HTML/CSS/JS                      |
+| Layer       | Technology                              | Description                               |
+|-------------|------------------------------------------|-------------------------------------------|
+| **STT**     | `whisper-large-v3-turbo` via Groq        | Ultra-fast speech-to-text                 |
+| **LLM**     | `llama-3.3-70b-versatile` via Groq       | Reasoning, entity extraction, and JSON    |
+| **TTS**     | `canopylabs/orpheus-v1-english` via Groq | Low-latency voice synthesis               |
+| **Embeddings** | `all-MiniLM-L6-v2` (384-dim)         | Semantic vector generation                |
+| **Vector DB** | PostgreSQL + `pgvector`                | Advanced hybrid search (semantic + SQL)   |
+| **Platform**| Docker & Docker Compose                  | Containerized database and environment    |
+| **API**     | FastAPI + Uvicorn                        | High-performance asynchronous API         |
+| **Frontend**| Vanilla HTML/CSS/JS                      | Lightweight, reactive web interface       |
 
 ---
 
-## Project Structure
+## Key Features & Highlights
 
-```
-Shopping_Voice_Agent/
-├── api/
-│   ├── main.py          # FastAPI app, endpoints
-│   ├── models.py        # Pydantic request/response schemas
-│   └── middleware.py    # Request tracing, logging
-├── agent/
-│   ├── stt.py           # Groq Whisper STT
-│   ├── tts.py           # Groq TTS
-│   ├── llm.py           # Groq LLM with JSON mode
-│   ├── rag.py           # FAISS retrieval engine
-│   ├── prompt.py        # System prompt & few-shot examples
-│   ├── guardrails.py    # Input/output safety checks
-│   └── orchestrator.py  # End-to-end pipeline
-├── db/
-│   ├── schema.sql       # SQLite schema
-│   ├── database.py      # Connection helpers
-│   └── seed.py          # 50 sample Indian e-commerce products
-├── frontend/
-│   ├── index.html       # Voice shopping frontend
-│   ├── index.css        # Styling
-│   └── app.jsx          # React components
-├── scripts/
-│   ├── build_index.py   # Build/rebuild FAISS index
-│   └── test_pipeline.py # CLI smoke tests
-├── tests/
-│   ├── test_guardrails.py
-│   ├── test_rag.py
-│   └── test_api.py
-├── config.py            # Central configuration
-├── run.py               # One-click startup script
-├── requirements.txt
-└── .env.example
-```
+- **Multi-Model Fail-Safe Design**: By separating concerns into highly specialized models (STT, LLM, Embedding, TTS), the pipeline ensures rapid execution and fail-safe redundancy. If semantic search yields no results, the RAG engine automatically falls back to raw SQL price-constraint filtering.
+- **PostgreSQL Vector Database**: Replaced legacy SQLite and FAISS files with an enterprise-grade `pgvector` integration. This enables executing advanced cosine similarity (`<=>`) semantic searches intertwined with standard SQL WHERE clauses (like price caps) in a single, lightning-fast database transaction.
+- **Dockerized Infrastructure**: A seamless `docker-compose.yml` spins up a robust PostgreSQL 16 instance pre-configured with the `pgvector` extension, guaranteeing a reproducible environment anywhere.
+- **Comprehensive Guardrails**: Fully integrated input and output validations. The system actively hunts for prompt injections, redacts PII (emails/phone numbers), clamps out-of-bounds queries, and scrubs hallucinated products before they reach the frontend.
+- **Real-Time UI Orchestration**: The AI dynamically generates structured JSON `ui_actions` (like `FILTER_PRODUCTS` or `ADD_TO_CART`) which command the frontend UI state without requiring page reloads.
 
 ---
 
@@ -131,24 +104,31 @@ Edit `.env` and set your Groq API key:
 
 ```env
 GROQ_API_KEY=gsk_your_groq_api_key_here
+DATABASE_URL=postgresql://shopbot:shopbot_password@localhost:5433/shopping_db
 ```
 
 Get a free Groq API key at: https://console.groq.com
 
-### 3. Start the Application
+### 3. Boot Up the PostgreSQL Database
+
+Ensure you have Docker installed and running, then spin up the database:
+
+```bash
+docker-compose up -d
+```
+
+### 4. Start the Application
 
 ```bash
 python run.py
 ```
 
 This will automatically:
-- Check Python version and install missing dependencies
-- Initialize the SQLite database and seed 50 sample products
-- Build the FAISS vector index (if missing or stale)
-- Start the FastAPI server via uvicorn
-- Open the frontend in your default browser
-
-*Note: For more options, run `python run.py --help`.*
+- Check Python versions and dependencies.
+- Initialize the PostgreSQL database schema.
+- Seed the catalog and instantly compute/insert all vector embeddings into Postgres.
+- Start the FastAPI server via uvicorn.
+- Open the frontend in your default browser.
 
 ---
 
@@ -195,15 +175,7 @@ This will automatically:
 
 ### `GET /v1/products` — Product Catalog
 
-Returns all 50 active products. Use this to populate your frontend's product grid.
-
-### `POST /v1/rebuild-index` — Admin
-
-Rebuilds the FAISS vector index. Call after updating product data.
-
-### `GET /health` — Health Check
-
-Returns API status and model configuration.
+Returns active products. Use this to populate your frontend's product grid.
 
 ---
 
@@ -213,7 +185,7 @@ Returns API status and model configuration.
 # Unit tests (no API key needed for guardrail + RAG tests)
 pytest tests/test_guardrails.py -v
 
-# RAG tests (needs DB + index)
+# RAG tests (needs DB running)
 pytest tests/test_rag.py -v
 
 # API tests (uses TestClient, needs GROQ_API_KEY)
@@ -221,32 +193,17 @@ pytest tests/test_api.py -v
 
 # Full test suite
 pytest tests/ -v
-
-# CLI smoke test (7 diverse queries)
-python scripts/test_pipeline.py
-
-# Single query test
-python scripts/test_pipeline.py --text "Show me wireless earbuds under 3000"
-
-# Test with audio file
-python scripts/test_pipeline.py --audio path/to/audio.wav --with-tts
 ```
 
 ---
 
-## Frontend Integration
+## Adding Products
 
-The frontend team needs to:
-
-1. Call `GET /v1/products` on page load to fetch the full product catalog.
-2. Build a product map: `{ id → productData }`.
-3. Call `POST /v1/shop` with customer audio.
-4. Execute received `ui_actions` to update the UI:
-   - `SHOW_PRODUCTS` → display specific product cards
-   - `FILTER_PRODUCTS` → apply filters to the grid
-   - `NAVIGATE_TO` → route to a page
-   - etc.
-5. Play `audio_b64` as WAV for the voice response.
+1. Add product entries to `db/seed.py`.
+2. Re-run the seeder to recalculate embeddings and insert them into PostgreSQL:
+   ```bash
+   python -m db.seed
+   ```
 
 ---
 
@@ -255,49 +212,12 @@ The frontend team needs to:
 | Variable         | Default                              | Description                   |
 |------------------|--------------------------------------|-------------------------------|
 | `GROQ_API_KEY`   | *(required)*                         | Groq API key                  |
+| `DATABASE_URL`   | *(required)*                         | PostgreSQL connection URL     |
 | `STT_MODEL`      | `whisper-large-v3-turbo`             | Groq Whisper model            |
 | `LLM_MODEL`      | `llama-3.3-70b-versatile`            | Groq LLM model                |
 | `TTS_MODEL`      | `canopylabs/orpheus-v1-english`      | Groq TTS model                |
-| `TTS_VOICE`      | `default`                            | TTS voice                     |
 | `EMBEDDING_MODEL`| `sentence-transformers/all-MiniLM-L6-v2` | Embedding model           |
-| `RAG_TOP_K`      | `10`                                 | FAISS candidates to fetch     |
-| `RAG_TOP_N`      | `3`                                  | Products sent to LLM          |
-| `LLM_TEMPERATURE`| `0.30`                               | LLM sampling temperature      |
 | `PORT`           | `8000`                               | API server port               |
-| `DB_PATH`        | `db/products.db`                     | SQLite database path          |
-
----
-
-## Adding Products
-
-1. Add product entries to `db/seed.py` → `PRODUCTS` list.
-2. Re-run the seeder:
-   ```bash
-   python -m db.seed
-   ```
-3. Rebuild the FAISS index:
-   ```bash
-   python scripts/build_index.py
-   # or call the admin endpoint:
-   curl -X POST http://localhost:8000/v1/rebuild-index
-   ```
-
----
-
-## Safety Guardrails
-
-### Input Protection
-- Prompt injection detection (20+ regex patterns)
-- PII redaction (phone numbers, emails, card numbers)
-- Maximum transcript length enforcement
-- Offensive content filtering
-
-### Output Protection
-- UI action type whitelist
-- Product ID existence validation (prevents hallucinated products)
-- Price/rating range validation
-- Response length cap
-- Brand safety (offensive content blocked)
 
 ---
 
