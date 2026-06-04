@@ -4,6 +4,7 @@ Safety guardrails for input and output validation.
 Input guardrails:  Applied to raw STT transcript before LLM call.
 Output guardrails: Applied to LLM response before returning to client.
 """
+
 import logging
 import re
 from typing import Any
@@ -35,7 +36,7 @@ _VALID_FILTER_KEYS = {
 }
 
 
-# ── Prompt Injection Patterns ─────────────────────────────────────────────────
+# Prompt Injection Patterns
 
 _INJECTION_PATTERNS = [
     r"ignore\s+(all\s+)?(previous|prior|above)\s+instructions?",
@@ -56,11 +57,20 @@ _INJECTION_PATTERNS = [
 _COMPILED_INJECTION = [re.compile(p, re.IGNORECASE) for p in _INJECTION_PATTERNS]
 
 
-# ── Offensive Content Patterns ────────────────────────────────────────────────
+# Offensive Content Patterns
 
 _OFFENSIVE_WORDS = [
-    "fuck", "shit", "bitch", "asshole", "bastard", "dick", "pussy",
-    "cunt", "nigger", "faggot", "retard",
+    "fuck",
+    "shit",
+    "bitch",
+    "asshole",
+    "bastard",
+    "dick",
+    "pussy",
+    "cunt",
+    "nigger",
+    "faggot",
+    "retard",
 ]
 
 _OFFENSIVE_PATTERN = re.compile(
@@ -71,8 +81,8 @@ _OFFENSIVE_PATTERN = re.compile(
 
 # PII Patterns
 _PII_PATTERNS = [
-    (re.compile(r'\b\d{10}\b'), "[PHONE]"),
-    (re.compile(r'\b[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+\b'), "[EMAIL]")
+    (re.compile(r"\b\d{10}\b"), "[PHONE]"),
+    (re.compile(r"\b[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+\b"), "[EMAIL]"),
 ]
 
 
@@ -80,8 +90,10 @@ _PII_PATTERNS = [
 # INPUT GUARDRAILS
 # ═══════════════════════════════════════════════════════════════════════════════
 
+
 class InputGuardrailError(Exception):
     """Raised when the input fails safety checks."""
+
     pass
 
 
@@ -103,13 +115,17 @@ def validate_input(transcript: str) -> str:
 
     # Length check
     if len(transcript) > config.MAX_TRANSCRIPT_CHARS:
-        logger.warning("Guardrail | Transcript too long (%d chars), truncating.", len(transcript))
+        logger.warning(
+            "Guardrail | Transcript too long (%d chars), truncating.", len(transcript)
+        )
         transcript = transcript[: config.MAX_TRANSCRIPT_CHARS]
 
     # Prompt injection detection
     for pattern in _COMPILED_INJECTION:
         if pattern.search(transcript):
-            logger.warning("Guardrail | Prompt injection detected: %r", transcript[:100])
+            logger.warning(
+                "Guardrail | Prompt injection detected: %r", transcript[:100]
+            )
             raise InputGuardrailError(
                 "Whoops! I'm just a simple shopping bot, so I can't do that. But I can definitely help you find some amazing deals on our store!"
             )
@@ -132,12 +148,16 @@ def validate_input(transcript: str) -> str:
 # OUTPUT GUARDRAILS
 # ═══════════════════════════════════════════════════════════════════════════════
 
+
 class OutputGuardrailError(Exception):
     """Raised when the LLM output fails safety checks."""
+
     pass
 
 
-def validate_output(response: dict[str, Any], allowed_product_ids: list[int] | None = None) -> dict[str, Any]:
+def validate_output(
+    response: dict[str, Any], allowed_product_ids: list[int] | None = None
+) -> dict[str, Any]:
     """
     Validate and sanitise the LLM's structured response.
 
@@ -151,21 +171,25 @@ def validate_output(response: dict[str, Any], allowed_product_ids: list[int] | N
     Raises:
         OutputGuardrailError: If the output is fundamentally unsafe.
     """
-    # ── response_text checks ─────────────────────────────────────────────────
+    # response_text checks
     response_text = str(response.get("response_text", ""))
 
     if not response_text.strip():
-        response["response_text"] = "I'm here to help! What would you like to shop for today?"
+        response["response_text"] = (
+            "I'm here to help! What would you like to shop for today?"
+        )
 
     if len(response_text) > config.MAX_RESPONSE_CHARS:
         logger.warning("Guardrail | Response too long, truncating.")
-        response["response_text"] = response_text[: config.MAX_RESPONSE_CHARS - 3] + "..."
+        response["response_text"] = (
+            response_text[: config.MAX_RESPONSE_CHARS - 3] + "..."
+        )
 
     if _OFFENSIVE_PATTERN.search(response_text):
         logger.error("Guardrail | Offensive content in LLM response — blocking.")
         raise OutputGuardrailError("LLM generated offensive content.")
 
-    # ── ui_actions checks ────────────────────────────────────────────────────
+    # ui_actions checks
     actions = response.get("ui_actions", [])
 
     if not isinstance(actions, list):
@@ -175,7 +199,11 @@ def validate_output(response: dict[str, Any], allowed_product_ids: list[int] | N
 
     # Cap number of actions
     if len(actions) > config.MAX_UI_ACTIONS:
-        logger.warning("Guardrail | Too many UI actions (%d), capping at %d.", len(actions), config.MAX_UI_ACTIONS)
+        logger.warning(
+            "Guardrail | Too many UI actions (%d), capping at %d.",
+            len(actions),
+            config.MAX_UI_ACTIONS,
+        )
         actions = actions[: config.MAX_UI_ACTIONS]
 
     validated_actions = []
@@ -186,9 +214,11 @@ def validate_output(response: dict[str, Any], allowed_product_ids: list[int] | N
         action_type = str(action.get("action", "")).upper()
         params = action.get("params", {})
         if not isinstance(params, dict):
-            logger.warning("Guardrail | Params for %s are not an object - skipping.", action_type)
+            logger.warning(
+                "Guardrail | Params for %s are not an object - skipping.", action_type
+            )
             continue
-            
+
         # Alias common hallucinated actions
         if action_type == "SHOW_CART":
             action_type = "NAVIGATE_TO"
@@ -196,11 +226,18 @@ def validate_output(response: dict[str, Any], allowed_product_ids: list[int] | N
 
         # Action type whitelist
         if action_type not in config.VALID_UI_ACTIONS:
-            logger.warning("Guardrail | Unknown UI action type: %r — skipping.", action_type)
+            logger.warning(
+                "Guardrail | Unknown UI action type: %r — skipping.", action_type
+            )
             continue
 
         # Validate product IDs exist in DB (prevent hallucinated products)
-        if action_type in ("SHOW_PRODUCTS", "SHOW_PRODUCT_DETAIL", "ADD_TO_CART", "REMOVE_FROM_CART"):
+        if action_type in (
+            "SHOW_PRODUCTS",
+            "SHOW_PRODUCT_DETAIL",
+            "ADD_TO_CART",
+            "REMOVE_FROM_CART",
+        ):
             params = _validate_product_ids(action_type, params, allowed_product_ids)
             if params is None:
                 continue
@@ -233,13 +270,16 @@ def validate_output(response: dict[str, Any], allowed_product_ids: list[int] | N
     return response
 
 
-
-def _validate_product_ids(action_type: str, params: dict, allowed_product_ids: list[int] | None = None) -> dict | None:
+def _validate_product_ids(
+    action_type: str, params: dict, allowed_product_ids: list[int] | None = None
+) -> dict | None:
     """Validate product actions and drop commands that target missing products."""
     if action_type == "SHOW_PRODUCTS":
         raw_ids = params.get("product_ids", [])
         if not isinstance(raw_ids, list):
-            logger.warning("Guardrail | SHOW_PRODUCTS product_ids is not a list - skipping.")
+            logger.warning(
+                "Guardrail | SHOW_PRODUCTS product_ids is not a list - skipping."
+            )
             return None
 
         valid_ids = []
@@ -260,14 +300,25 @@ def _validate_product_ids(action_type: str, params: dict, allowed_product_ids: l
             return None
         return {"product_ids": valid_ids}
 
-    if action_type in ("SHOW_PRODUCT_DETAIL", "ADD_TO_CART", "REMOVE_FROM_CART", "UPDATE_CART_QUANTITY"):
+    if action_type in (
+        "SHOW_PRODUCT_DETAIL",
+        "ADD_TO_CART",
+        "REMOVE_FROM_CART",
+        "UPDATE_CART_QUANTITY",
+    ):
         pid = _coerce_product_id(params.get("product_id"))
         if pid is None or not product_exists(pid):
-            logger.warning("Guardrail | product_id=%r is invalid - removing action.", params.get("product_id"))
+            logger.warning(
+                "Guardrail | product_id=%r is invalid - removing action.",
+                params.get("product_id"),
+            )
             return None
-        
+
         result = {"product_id": pid}
-        if action_type in ("ADD_TO_CART", "UPDATE_CART_QUANTITY") and "quantity" in params:
+        if (
+            action_type in ("ADD_TO_CART", "UPDATE_CART_QUANTITY")
+            and "quantity" in params
+        ):
             try:
                 result["quantity"] = int(params["quantity"])
             except (ValueError, TypeError):

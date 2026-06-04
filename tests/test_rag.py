@@ -1,13 +1,15 @@
 """Tests for the RAG retrieval engine."""
+
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import pytest
+
+from agent.rag import retrieve
 from db.database import init_db
 from db.seed import seed
-from agent.rag import retrieve
 
 
 @pytest.fixture(scope="module", autouse=True)
@@ -18,7 +20,6 @@ def setup_db_and_index():
 
 
 class TestRAGRetrieval:
-
     def test_retrieves_results(self):
         results = retrieve("running shoes")
         assert len(results) > 0

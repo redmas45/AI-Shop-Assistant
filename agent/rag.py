@@ -2,6 +2,7 @@
 RAG (Retrieval-Augmented Generation) engine.
 Uses PostgreSQL + pgvector for vector similarity search and sentence-transformers for embeddings.
 """
+
 import json
 import logging
 import re
@@ -15,12 +16,13 @@ from db.database import get_db
 
 logger = logging.getLogger(__name__)
 
-# ── Lazy globals (loaded once) ────────────────────────────────────────────────
+# Lazy globals (loaded once)
 _lock = threading.Lock()
 _embedder = None
 
 
-# ── Embedder ──────────────────────────────────────────────────────────────────
+# Embedder
+
 
 def _get_embedder():
     """Lazy-load the sentence-transformer model (thread-safe)."""
@@ -29,6 +31,7 @@ def _get_embedder():
         with _lock:
             if _embedder is None:
                 from sentence_transformers import SentenceTransformer
+
                 logger.info("RAG | Loading embedding model: %s", config.EMBEDDING_MODEL)
                 _embedder = SentenceTransformer(config.EMBEDDING_MODEL)
                 logger.info("RAG | Embedding model loaded.")
@@ -42,7 +45,8 @@ def _embed(texts: list[str]) -> np.ndarray:
     return vecs.astype(np.float32)
 
 
-# ── Price constraint extraction ───────────────────────────────────────────────
+# Price constraint extraction
+
 
 def extract_price_constraints(query: str) -> dict:
     """
@@ -57,9 +61,9 @@ def extract_price_constraints(query: str) -> dict:
 
     # Pattern: "between X and Y" / "from X to Y"
     between_pat = re.compile(
-        r'(?:between|from)\s+(?:₹|rs\.?|rupees?)?\s*(\d+(?:[.,]\d+)?)'
-        r'\s*(?:and|to|-)\s*'
-        r'(?:₹|rs\.?|rupees?)?\s*(\d+(?:[.,]\d+)?)',
+        r"(?:between|from)\s+(?:₹|rs\.?|rupees?)?\s*(\d+(?:[.,]\d+)?)"
+        r"\s*(?:and|to|-)\s*"
+        r"(?:₹|rs\.?|rupees?)?\s*(\d+(?:[.,]\d+)?)",
         re.IGNORECASE,
     )
     m = between_pat.search(q)
@@ -73,8 +77,8 @@ def extract_price_constraints(query: str) -> dict:
 
     # Pattern: "under / below / less than / within / upto / at most / max / cheaper than X"
     max_pat = re.compile(
-        r'(?:under|below|less\s+than|within|upto|up\s+to|at\s+most|max|maximum|cheaper\s+than|not\s+(?:more|above)\s+(?:than)?)'
-        r'\s*(?:₹|rs\.?|rupees?)?\s*(\d+(?:[.,]\d+)?)',
+        r"(?:under|below|less\s+than|within|upto|up\s+to|at\s+most|max|maximum|cheaper\s+than|not\s+(?:more|above)\s+(?:than)?)"
+        r"\s*(?:₹|rs\.?|rupees?)?\s*(\d+(?:[.,]\d+)?)",
         re.IGNORECASE,
     )
     m = max_pat.search(q)
@@ -83,8 +87,8 @@ def extract_price_constraints(query: str) -> dict:
 
     # Pattern: "above / over / more than / at least / min / starting from / costlier than X"
     min_pat = re.compile(
-        r'(?:above|over|more\s+than|at\s+least|min|minimum|starting\s+from|costlier\s+than|not\s+(?:less|below|under)\s+(?:than)?)'
-        r'\s*(?:₹|rs\.?|rupees?)?\s*(\d+(?:[.,]\d+)?)',
+        r"(?:above|over|more\s+than|at\s+least|min|minimum|starting\s+from|costlier\s+than|not\s+(?:less|below|under)\s+(?:than)?)"
+        r"\s*(?:₹|rs\.?|rupees?)?\s*(\d+(?:[.,]\d+)?)",
         re.IGNORECASE,
     )
     m = min_pat.search(q)
@@ -93,7 +97,7 @@ def extract_price_constraints(query: str) -> dict:
 
     # Pattern: "I (only) have X rupees" / "my budget is X" / "budget X"
     budget_pat = re.compile(
-        r'(?:i\s+(?:only\s+)?have|(?:my\s+)?budget\s+(?:is)?)\s*(?:₹|rs\.?|rupees?)?\s*(\d+(?:[.,]\d+)?)',
+        r"(?:i\s+(?:only\s+)?have|(?:my\s+)?budget\s+(?:is)?)\s*(?:₹|rs\.?|rupees?)?\s*(\d+(?:[.,]\d+)?)",
         re.IGNORECASE,
     )
     m = budget_pat.search(q)
@@ -103,22 +107,30 @@ def extract_price_constraints(query: str) -> dict:
     # Pattern: standalone "X rupees" with implicit budget context (only if no other constraint found)
     if not constraints:
         rupee_pat = re.compile(
-            r'(?:₹|rs\.?)\s*(\d+(?:[.,]\d+)?)|(\d+(?:[.,]\d+)?)\s*(?:₹|rs\.?|rupees?)',
+            r"(?:₹|rs\.?)\s*(\d+(?:[.,]\d+)?)|(\d+(?:[.,]\d+)?)\s*(?:₹|rs\.?|rupees?)",
             re.IGNORECASE,
         )
         m = rupee_pat.search(q)
         if m:
             val = float((m.group(1) or m.group(2)).replace(",", ""))
             # If the query tone suggests a budget/limit, treat as max_price
-            if any(word in q for word in ["only", "just", "budget", "afford", "cheap", "save"]):
+            if any(
+                word in q
+                for word in ["only", "just", "budget", "afford", "cheap", "save"]
+            ):
                 constraints["max_price"] = val
 
     if constraints:
-        logger.info("RAG | Price constraints extracted: %s from query: %r", constraints, query[:80])
+        logger.info(
+            "RAG | Price constraints extracted: %s from query: %r",
+            constraints,
+            query[:80],
+        )
     return constraints
 
 
-# ── Retrieval ─────────────────────────────────────────────────────────────────
+# Retrieval
+
 
 def retrieve(
     query: str,
@@ -149,13 +161,13 @@ def retrieve(
 
     conditions = ["p.is_active = 1"]
     params = []
-    
+
     # Cosine distance operator <=> (distance = 1 - cosine similarity)
     # We want similarity = 1 - distance
-    
+
     # We add the embedding to the params
     params.append(query_vec)
-    params.append(query_vec) # For the ORDER BY
+    params.append(query_vec)  # For the ORDER BY
 
     max_price = price_constraints.get("max_price") if price_constraints else None
     min_price = price_constraints.get("min_price") if price_constraints else None
@@ -168,7 +180,7 @@ def retrieve(
         params.append(min_price)
 
     where_clause = " AND ".join(conditions)
-    params.append(n * 2) # Fetch extra to filter out low similarities
+    params.append(n * 2)  # Fetch extra to filter out low similarities
 
     with get_db() as conn:
         rows = conn.execute(
@@ -181,14 +193,14 @@ def retrieve(
             ORDER BY p.embedding <=> %s
             LIMIT %s
             """,
-            params
+            params,
         ).fetchall()
 
     candidate_products = [dict(row) for row in rows]
-    
+
     # Filter out weak semantic matches (cosine similarity < 0.3)
     filtered_products = [p for p in candidate_products if p["_semantic_score"] >= 0.3]
-    
+
     # If price filtering + weak semantic match filter removed everything, try a DB-level fallback
     if not filtered_products and price_constraints:
         logger.info("RAG | Filter removed all candidates — trying DB fallback")
@@ -202,7 +214,8 @@ def retrieve(
     result = filtered_products[:n]
     logger.info(
         "RAG | query=%r | returned=%d | top_score=%.3f | price_filter=%s",
-        query[:60], len(result),
+        query[:60],
+        len(result),
         result[0]["_semantic_score"] if result else 0,
         price_constraints or "none",
     )
@@ -256,7 +269,9 @@ def preload() -> None:
     _get_embedder()
     logger.info("RAG | Preload complete.")
 
-# ── Helpers ───────────────────────────────────────────────────────────────────
+
+# Helpers
+
 
 def _product_to_text(product: dict) -> str:
     """

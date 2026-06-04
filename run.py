@@ -30,22 +30,43 @@ if sys.platform == "win32":
     sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
     sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="replace")
 
-# ── Colour helpers (works on Windows 10+ and all POSIX terminals) ─────────────
-os.system("")   # enable ANSI on Windows
+# Colour helpers (works on Windows 10+ and all POSIX terminals)
+os.system("")  # enable ANSI on Windows
 
-def c(text, code): return f"\033[{code}m{text}\033[0m"
-def green(t):   return c(t, "92")
-def yellow(t):  return c(t, "93")
-def red(t):     return c(t, "91")
-def cyan(t):    return c(t, "96")
-def bold(t):    return c(t, "1")
-def dim(t):     return c(t, "2")
+
+def c(text, code):
+    return f"\033[{code}m{text}\033[0m"
+
+
+def green(t):
+    return c(t, "92")
+
+
+def yellow(t):
+    return c(t, "93")
+
+
+def red(t):
+    return c(t, "91")
+
+
+def cyan(t):
+    return c(t, "96")
+
+
+def bold(t):
+    return c(t, "1")
+
+
+def dim(t):
+    return c(t, "2")
+
 
 BANNER = f"""
-{cyan('+--------------------------------------------------+')}
-{cyan('|')}   {bold('ShopBot  --  Voice AI Shopping Assistant')}      {cyan('|')}
-{cyan('|')}   {dim('Powered by Groq  |  PostgreSQL  |  FastAPI')}      {cyan('|')}
-{cyan('+--------------------------------------------------+')}
+{cyan("+--------------------------------------------------+")}
+{cyan("|")}   {bold("ShopBot  --  Voice AI Shopping Assistant")}      {cyan("|")}
+{cyan("|")}   {dim("Powered by Groq  |  PostgreSQL  |  FastAPI")}      {cyan("|")}
+{cyan("+--------------------------------------------------+")}
 """
 
 ROOT = Path(__file__).parent
@@ -55,18 +76,23 @@ ROOT = Path(__file__).parent
 # HELPERS
 # ══════════════════════════════════════════════════════════════════════════════
 
+
 def step(msg: str):
     print(f"\n{cyan('▶')} {bold(msg)}")
+
 
 def ok(msg: str):
     print(f"  {green('✔')} {msg}")
 
+
 def warn(msg: str):
     print(f"  {yellow('⚠')} {msg}")
+
 
 def fail(msg: str):
     print(f"\n  {red('✖')} {msg}")
     sys.exit(1)
+
 
 def run(cmd: list[str], **kwargs) -> subprocess.CompletedProcess:
     return subprocess.run(cmd, **kwargs)
@@ -75,6 +101,7 @@ def run(cmd: list[str], **kwargs) -> subprocess.CompletedProcess:
 # ══════════════════════════════════════════════════════════════════════════════
 # CHECKS
 # ══════════════════════════════════════════════════════════════════════════════
+
 
 def check_python():
     step("Checking Python version")
@@ -92,6 +119,7 @@ def install_dependencies():
 
     try:
         import fastapi, groq, psycopg, sentence_transformers, pgvector  # noqa
+
         ok("All core dependencies already installed.")
         return
     except ImportError:
@@ -123,6 +151,7 @@ def check_env():
 
     # Load .env
     from dotenv import load_dotenv
+
     load_dotenv(env_file)
 
     key = os.getenv("GROQ_API_KEY", "").strip()
@@ -146,7 +175,8 @@ def init_database():
     step("Initialising database")
     sys.path.insert(0, str(ROOT))
 
-    from db.database import init_db, get_db
+    from db.database import get_db, init_db
+
     init_db()
 
     with get_db() as conn:
@@ -156,6 +186,7 @@ def init_database():
     if count == 0:
         warn("No products found — seeding catalog…")
         from db.seed import seed
+
         seed()
         with get_db() as conn:
             row = conn.execute("SELECT COUNT(*) FROM products").fetchone()
@@ -165,12 +196,10 @@ def init_database():
         ok(f"Database ready — {count} products loaded.")
 
 
-
-
-
 def check_port(port: int) -> bool:
     """Return True if the port is free."""
     import socket
+
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
         s.settimeout(1)
         return s.connect_ex(("127.0.0.1", port)) != 0
@@ -180,6 +209,7 @@ def check_port(port: int) -> bool:
 # LAUNCH SERVER
 # ══════════════════════════════════════════════════════════════════════════════
 
+
 def launch_server(port: int, open_browser: bool, reload: bool):
     step(f"Starting ShopBot API server on port {port}")
 
@@ -188,39 +218,43 @@ def launch_server(port: int, open_browser: bool, reload: bool):
         warn(f"Port {port} is already in use — trying next port...")
         port += 1
         if port > original_port + 10:
-            warn(f"Could not find an open port. Please kill the process running on {original_port}.")
+            warn(
+                f"Could not find an open port. Please kill the process running on {original_port}."
+            )
             return
 
-    url       = f"http://localhost:{port}/"
-    docs_url  = f"http://localhost:{port}/docs"
+    url = f"http://localhost:{port}/"
+    docs_url = f"http://localhost:{port}/docs"
     health_url = f"http://localhost:{port}/health"
 
     print(f"""
-  {green('━' * 50)}
-  {bold('🚀 ShopBot is starting!')}
+  {green("━" * 50)}
+  {bold("🚀 ShopBot is starting!")}
 
-  {cyan('App UI    →')} {bold(url)}
-  {cyan('API Docs  →')} {bold(docs_url)}
-  {cyan('Health    →')} {bold(health_url)}
+  {cyan("App UI    →")} {bold(url)}
+  {cyan("API Docs  →")} {bold(docs_url)}
+  {cyan("Health    →")} {bold(health_url)}
 
-  {dim('Press Ctrl+C to stop')}
-  {green('━' * 50)}
+  {dim("Press Ctrl+C to stop")}
+  {green("━" * 50)}
 """)
 
     # Open browser after a short delay
     if open_browser:
         import threading
+
         def _open():
             time.sleep(2.5)
             webbrowser.open(url)
+
         threading.Thread(target=_open, daemon=True).start()
 
     # Launch uvicorn
     import uvicorn
-    
+
     # Change into the ROOT directory so uvicorn can find "api.main"
     os.chdir(str(ROOT))
-    
+
     try:
         uvicorn.run(
             "api.main:app",
@@ -237,6 +271,7 @@ def launch_server(port: int, open_browser: bool, reload: bool):
 # MAIN
 # ══════════════════════════════════════════════════════════════════════════════
 
+
 def parse_args():
     parser = argparse.ArgumentParser(
         description="Run the Voice Shopping Agent",
@@ -249,9 +284,15 @@ Examples:
   python run.py --no-reload        Disable auto-reload (production mode)
         """,
     )
-    parser.add_argument("--port",          type=int, default=8000,    help="Server port (default: 8000)")
-    parser.add_argument("--no-browser",    action="store_true",       help="Skip auto-opening the browser")
-    parser.add_argument("--no-reload",     action="store_true",       help="Disable uvicorn auto-reload")
+    parser.add_argument(
+        "--port", type=int, default=8000, help="Server port (default: 8000)"
+    )
+    parser.add_argument(
+        "--no-browser", action="store_true", help="Skip auto-opening the browser"
+    )
+    parser.add_argument(
+        "--no-reload", action="store_true", help="Disable uvicorn auto-reload"
+    )
     return parser.parse_args()
 
 

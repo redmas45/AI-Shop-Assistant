@@ -3,13 +3,19 @@ LLM client using Groq's OpenAI-compatible API.
 Sends the assembled prompt and returns a parsed structured response.
 Supports multi-turn conversation history.
 """
+
 import json
 import logging
 import re
 from typing import Any
 
 from groq import Groq
-from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
+from tenacity import (
+    retry,
+    retry_if_exception_type,
+    stop_after_attempt,
+    wait_exponential,
+)
 
 import config
 from agent.prompt import build_system_prompt, format_products_for_prompt
@@ -28,7 +34,7 @@ def _get_client() -> Groq:
     return _client
 
 
-# ── Response schema ───────────────────────────────────────────────────────────
+# Response schema
 
 DEFAULT_RESPONSE: dict[str, Any] = {
     "response_text": "I'm sorry, I couldn't process that request. Please try again.",
@@ -38,7 +44,8 @@ DEFAULT_RESPONSE: dict[str, Any] = {
 }
 
 
-# ── LLM call with retry ───────────────────────────────────────────────────────
+# LLM call with retry
+
 
 @retry(
     stop=stop_after_attempt(4),
@@ -64,18 +71,31 @@ def _call_llm(system_prompt: str, messages: list[dict]) -> str:
         return completion.choices[0].message.content or ""
     except Exception as exc:
         import groq
-        if isinstance(exc, groq.RateLimitError) or (hasattr(exc, "status_code") and exc.status_code == 429):
-            fallbacks = ["llama-3.3-70b-versatile", "llama-3.1-8b-instant", "mixtral-8x7b-32768", "gemma2-9b-it"]
+
+        if isinstance(exc, groq.RateLimitError) or (
+            hasattr(exc, "status_code") and exc.status_code == 429
+        ):
+            fallbacks = [
+                "llama-3.3-70b-versatile",
+                "llama-3.1-8b-instant",
+                "mixtral-8x7b-32768",
+                "gemma2-9b-it",
+            ]
             if config.LLM_MODEL in fallbacks:
                 idx = fallbacks.index(config.LLM_MODEL)
                 if idx + 1 < len(fallbacks):
                     new_model = fallbacks[idx + 1]
-                    logger.warning("LLM rate limit reached for %s. Auto-switching to %s", config.LLM_MODEL, new_model)
+                    logger.warning(
+                        "LLM rate limit reached for %s. Auto-switching to %s",
+                        config.LLM_MODEL,
+                        new_model,
+                    )
                     config.LLM_MODEL = new_model
         raise exc
 
 
-# ── Public API ────────────────────────────────────────────────────────────────
+# Public API
+
 
 def generate_response(
     user_message: str,
@@ -104,7 +124,9 @@ def generate_response(
 
     logger.info(
         "LLM | model=%s | user=%r | products=%d | history=%d",
-        config.LLM_MODEL, user_message[:80], len(retrieved_products),
+        config.LLM_MODEL,
+        user_message[:80],
+        len(retrieved_products),
         len(conversation_history) if conversation_history else 0,
     )
 
@@ -114,7 +136,9 @@ def generate_response(
     if conversation_history:
         # Keep last N turns to avoid token overflow (each turn = 2 messages)
         max_history_turns = 6
-        history_to_use = _sanitize_history(conversation_history)[-(max_history_turns * 2):]
+        history_to_use = _sanitize_history(conversation_history)[
+            -(max_history_turns * 2) :
+        ]
         messages.extend(history_to_use)
 
     # Add current user message
@@ -126,7 +150,9 @@ def generate_response(
         result = _parse_response(raw)
         logger.info(
             "LLM | intent=%s confidence=%.2f actions=%d",
-            result.get("intent"), result.get("confidence", 0), len(result.get("ui_actions", [])),
+            result.get("intent"),
+            result.get("confidence", 0),
+            len(result.get("ui_actions", [])),
         )
         return result
 
@@ -135,7 +161,8 @@ def generate_response(
         return DEFAULT_RESPONSE.copy()
 
 
-# ── Response parsing ──────────────────────────────────────────────────────────
+# Response parsing
+
 
 def _parse_response(raw: str) -> dict[str, Any]:
     """
@@ -163,10 +190,12 @@ def _parse_response(raw: str) -> dict[str, Any]:
 
     # Normalise and validate required fields
     return {
-        "response_text": str(data.get("response_text", DEFAULT_RESPONSE["response_text"])),
-        "intent":        str(data.get("intent", "unknown")),
-        "confidence":    float(data.get("confidence", 0.0)),
-        "ui_actions":    _normalise_actions(data.get("ui_actions", [])),
+        "response_text": str(
+            data.get("response_text", DEFAULT_RESPONSE["response_text"])
+        ),
+        "intent": str(data.get("intent", "unknown")),
+        "confidence": float(data.get("confidence", 0.0)),
+        "ui_actions": _normalise_actions(data.get("ui_actions", [])),
     }
 
 
@@ -199,5 +228,7 @@ def _sanitize_history(history: list[dict]) -> list[dict[str, str]]:
             continue
         content = content.strip()
         if content:
-            clean.append({"role": role, "content": content[: config.MAX_TRANSCRIPT_CHARS]})
+            clean.append(
+                {"role": role, "content": content[: config.MAX_TRANSCRIPT_CHARS]}
+            )
     return clean

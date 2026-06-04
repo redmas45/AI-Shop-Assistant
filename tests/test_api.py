@@ -2,6 +2,7 @@
 API endpoint tests using FastAPI's TestClient.
 Run with: pytest tests/test_api.py -v
 """
+
 import sys
 from pathlib import Path
 
@@ -15,11 +16,11 @@ from fastapi.testclient import TestClient
 def client():
     """Create a test client (no real server needed)."""
     from api.main import app
+
     return TestClient(app)
 
 
 class TestHealthEndpoint:
-
     def test_health_ok(self, client):
         res = client.get("/health")
         assert res.status_code == 200
@@ -35,7 +36,6 @@ class TestHealthEndpoint:
 
 
 class TestProductsEndpoint:
-
     def test_products_returns_list(self, client):
         res = client.get("/v1/products")
         assert res.status_code == 200
@@ -58,9 +58,10 @@ class TestProductsEndpoint:
 
 
 class TestShopEndpoint:
-
     def test_text_input_returns_response(self, client):
-        res = client.post("/v1/shop", data={"text": "Show me red shoes", "skip_tts": "true"})
+        res = client.post(
+            "/v1/shop", data={"text": "Show me red shoes", "skip_tts": "true"}
+        )
         assert res.status_code == 200
         data = res.json()
         assert "response_text" in data
@@ -77,23 +78,32 @@ class TestShopEndpoint:
         assert res.status_code in (400, 422)
 
     def test_response_has_valid_confidence(self, client):
-        res = client.post("/v1/shop", data={"text": "Show me yoga mat", "skip_tts": "true"})
+        res = client.post(
+            "/v1/shop", data={"text": "Show me yoga mat", "skip_tts": "true"}
+        )
         data = res.json()
         assert 0.0 <= data["confidence"] <= 1.0
 
     def test_ui_actions_are_list(self, client):
-        res = client.post("/v1/shop", data={"text": "Show me electronics", "skip_tts": "true"})
+        res = client.post(
+            "/v1/shop", data={"text": "Show me electronics", "skip_tts": "true"}
+        )
         data = res.json()
         assert isinstance(data["ui_actions"], list)
 
     def test_latency_ms_present(self, client):
-        res = client.post("/v1/shop", data={"text": "Best running shoes", "skip_tts": "true"})
+        res = client.post(
+            "/v1/shop", data={"text": "Best running shoes", "skip_tts": "true"}
+        )
         data = res.json()
         assert "latency_ms" in data
         assert data["latency_ms"]["total_ms"] > 0
 
     def test_off_topic_query(self, client):
-        res = client.post("/v1/shop", data={"text": "What is the capital of India?", "skip_tts": "true"})
+        res = client.post(
+            "/v1/shop",
+            data={"text": "What is the capital of India?", "skip_tts": "true"},
+        )
         assert res.status_code == 200
         data = res.json()
         # Should respond gracefully (not crash)

@@ -1,13 +1,14 @@
-import urllib.request
 import json
 import sys
+import urllib.request
 from pathlib import Path
+
 
 def main():
     url = "https://fakestoreapi.com/products"
     try:
         print(f"Fetching data from {url}...")
-        req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
         response = urllib.request.urlopen(req)
         data = json.loads(response.read())
     except Exception as e:
@@ -35,12 +36,16 @@ def main():
             "category": item.get("category", "Uncategorized"),
             "price": item.get("price", 0.0),
             "discountPercentage": 0.0,
-            "rating": item.get("rating", {}).get("rate", 4.0) if isinstance(item.get("rating"), dict) else 4.0,
+            "rating": item.get("rating", {}).get("rate", 4.0)
+            if isinstance(item.get("rating"), dict)
+            else 4.0,
             "stock": 100,
-            "tags": [item.get("category", "Uncategorized")] if item.get("category") else [],
+            "tags": [item.get("category", "Uncategorized")]
+            if item.get("category")
+            else [],
             "brand": "FakeStore",
             "images": [item.get("image")] if item.get("image") else [],
-            "reviews": []
+            "reviews": [],
         }
         # Avoid exact duplicates by title
         if any(p.get("title") == new_prod["title"] for p in products):
@@ -52,6 +57,7 @@ def main():
     existing_data["products"] = products
     json_path.write_text(json.dumps(existing_data, indent=2), encoding="utf-8")
     print(f"Added {added} products from FakeStore API to products.json.")
+
 
 if __name__ == "__main__":
     main()

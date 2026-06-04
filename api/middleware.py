@@ -1,6 +1,7 @@
 """
 FastAPI middleware: request ID tracing, structured logging, rate limiting.
 """
+
 import logging
 import time
 import uuid
@@ -21,7 +22,9 @@ class RequestTracingMiddleware(BaseHTTPMiddleware):
 
         logger.info(
             "REQ  | id=%s method=%s path=%s",
-            request_id, request.method, request.url.path,
+            request_id,
+            request.method,
+            request.url.path,
         )
 
         response = await call_next(request)
@@ -32,6 +35,8 @@ class RequestTracingMiddleware(BaseHTTPMiddleware):
 
         logger.info(
             "RESP | id=%s status=%d time=%.0fms",
-            request_id, response.status_code, elapsed_ms,
+            request_id,
+            response.status_code,
+            elapsed_ms,
         )
         return response

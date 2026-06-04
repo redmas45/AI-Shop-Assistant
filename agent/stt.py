@@ -2,6 +2,7 @@
 Speech-to-Text module using Groq's Whisper API.
 Accepts raw audio bytes in any format and returns a transcript string.
 """
+
 import io
 import logging
 from pathlib import Path
@@ -20,14 +21,18 @@ def _get_client() -> Groq:
     global _client
     if _client is None:
         if not config.GROQ_API_KEY:
-            raise RuntimeError(
-                "GROQ_API_KEY is not set. Add it to your .env file."
-            )
+            raise RuntimeError("GROQ_API_KEY is not set. Add it to your .env file.")
         _client = Groq(api_key=config.GROQ_API_KEY)
     return _client
 
 
-from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
+from tenacity import (
+    retry,
+    retry_if_exception_type,
+    stop_after_attempt,
+    wait_exponential,
+)
+
 
 @retry(
     stop=stop_after_attempt(4),
@@ -51,13 +56,24 @@ def _call_stt(audio_file: tuple, language: str) -> str:
         return str(response).strip()
     except Exception as exc:
         import groq
-        if isinstance(exc, groq.RateLimitError) or (hasattr(exc, "status_code") and exc.status_code == 429):
-            fallbacks = ["whisper-large-v3-turbo", "whisper-large-v3", "distil-whisper-large-v3-en"]
+
+        if isinstance(exc, groq.RateLimitError) or (
+            hasattr(exc, "status_code") and exc.status_code == 429
+        ):
+            fallbacks = [
+                "whisper-large-v3-turbo",
+                "whisper-large-v3",
+                "distil-whisper-large-v3-en",
+            ]
             if config.STT_MODEL in fallbacks:
                 idx = fallbacks.index(config.STT_MODEL)
                 if idx + 1 < len(fallbacks):
                     new_model = fallbacks[idx + 1]
-                    logger.warning("STT rate limit reached for %s. Auto-switching to %s", config.STT_MODEL, new_model)
+                    logger.warning(
+                        "STT rate limit reached for %s. Auto-switching to %s",
+                        config.STT_MODEL,
+                        new_model,
+                    )
                     config.STT_MODEL = new_model
         raise exc
 
@@ -93,12 +109,12 @@ def _mime_type(filename: str) -> str:
     """Return MIME type based on file extension."""
     ext = Path(filename).suffix.lower()
     mapping = {
-        ".wav":  "audio/wav",
-        ".mp3":  "audio/mpeg",
+        ".wav": "audio/wav",
+        ".mp3": "audio/mpeg",
         ".webm": "audio/webm",
-        ".ogg":  "audio/ogg",
-        ".m4a":  "audio/mp4",
+        ".ogg": "audio/ogg",
+        ".m4a": "audio/mp4",
         ".flac": "audio/flac",
-        ".mp4":  "audio/mp4",
+        ".mp4": "audio/mp4",
     }
     return mapping.get(ext, "audio/wav")

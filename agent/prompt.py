@@ -235,7 +235,9 @@ Now respond to the customer's message below.
 """
 
 
-def build_system_prompt(product_context: str, cart_context: str = "", profile_context: str = "") -> str:
+def build_system_prompt(
+    product_context: str, cart_context: str = "", profile_context: str = ""
+) -> str:
     """
     Inject retrieved product context and cart state into the system prompt.
 
@@ -291,7 +293,9 @@ def format_products_for_prompt(
             parts.append(f"max budget ₹{int(price_constraints['max_price']):,}")
         if "min_price" in price_constraints:
             parts.append(f"min budget ₹{int(price_constraints['min_price']):,}")
-        lines.append(f"⚠️ CUSTOMER BUDGET: {', '.join(parts)}. ONLY recommend products within this budget!\n")
+        lines.append(
+            f"⚠️ CUSTOMER BUDGET: {', '.join(parts)}. ONLY recommend products within this budget!\n"
+        )
 
     for p in products:
         discount = ""

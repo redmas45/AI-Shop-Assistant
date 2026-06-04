@@ -2,27 +2,26 @@
 PostgreSQL database connection helpers.
 Uses psycopg 3 thread-local connections.
 """
+
 import threading
-from pathlib import Path
 from contextlib import contextmanager
+from pathlib import Path
 from typing import Generator
 
 import psycopg
+from pgvector.psycopg import register_vector
 from psycopg.rows import dict_row
 
 import config
-from pgvector.psycopg import register_vector
 
 # Thread-local storage for connections
 _local = threading.local()
 
+
 def _get_connection() -> psycopg.Connection:
     """Return a thread-local Postgres connection, creating one if needed."""
     if not hasattr(_local, "conn") or _local.conn is None or _local.conn.closed:
-        conn = psycopg.connect(
-            config.DATABASE_URL,
-            row_factory=dict_row
-        )
+        conn = psycopg.connect(config.DATABASE_URL, row_factory=dict_row)
         # Ensure extension exists before registering it
         conn.execute("CREATE EXTENSION IF NOT EXISTS vector")
         conn.commit()
@@ -69,7 +68,7 @@ def get_all_products(limit: int = 10000, offset: int = 0) -> list[dict]:
             ORDER BY RANDOM()
             LIMIT %s OFFSET %s
             """,
-            (limit, offset)
+            (limit, offset),
         ).fetchall()
     return rows
 
@@ -117,7 +116,8 @@ def product_exists(product_id: int) -> bool:
     return row is not None
 
 
-# ── Cart Helpers ──────────────────────────────────────────────────────────────
+# Cart Helpers
+
 
 def get_cart_items() -> list[dict]:
     """Return all items in the cart with product details."""
@@ -138,15 +138,19 @@ def add_to_cart(product_id: int, quantity: int = 1) -> int:
     """Add a product to the cart or increment quantity if it exists."""
     with get_db() as conn:
         # Check if already in cart
-        row = conn.execute("SELECT id, quantity FROM cart WHERE product_id = %s", (product_id,)).fetchone()
+        row = conn.execute(
+            "SELECT id, quantity FROM cart WHERE product_id = %s", (product_id,)
+        ).fetchone()
         if row:
             new_qty = row["quantity"] + quantity
-            conn.execute("UPDATE cart SET quantity = %s WHERE id = %s", (new_qty, row["id"]))
+            conn.execute(
+                "UPDATE cart SET quantity = %s WHERE id = %s", (new_qty, row["id"])
+            )
             return row["id"]
         else:
             row = conn.execute(
                 "INSERT INTO cart (product_id, quantity) VALUES (%s, %s) RETURNING id",
-                (product_id, quantity)
+                (product_id, quantity),
             ).fetchone()
             return row["id"]
 
@@ -154,16 +158,21 @@ def add_to_cart(product_id: int, quantity: int = 1) -> int:
 def update_cart_quantity(product_id: int, quantity: int) -> bool:
     """Update quantity of a specific product in the cart. If <= 0, remove it."""
     with get_db() as conn:
-        row = conn.execute("SELECT id FROM cart WHERE product_id = %s", (product_id,)).fetchone()
+        row = conn.execute(
+            "SELECT id FROM cart WHERE product_id = %s", (product_id,)
+        ).fetchone()
         if not row:
             return False
-            
+
         if quantity <= 0:
             cursor = conn.execute("DELETE FROM cart WHERE id = %s", (row["id"],))
         else:
-            cursor = conn.execute("UPDATE cart SET quantity = %s WHERE id = %s", (quantity, row["id"]))
-            
+            cursor = conn.execute(
+                "UPDATE cart SET quantity = %s WHERE id = %s", (quantity, row["id"])
+            )
+
         return cursor.rowcount > 0
+
 
 def remove_from_cart(cart_id: int) -> bool:
     """Remove a specific item from the cart."""
@@ -177,15 +186,20 @@ def clear_cart() -> None:
     with get_db() as conn:
         conn.execute("DELETE FROM cart")
 
-# ── User Profile Helpers ──────────────────────────────────────────────────────
+
+# User Profile Helpers
+
 
 def get_user_profile() -> dict:
     """Return the current user profile (address, payment_method)."""
     with get_db() as conn:
-        row = conn.execute("SELECT address, payment_method FROM user_profile WHERE id = 1").fetchone()
+        row = conn.execute(
+            "SELECT address, payment_method FROM user_profile WHERE id = 1"
+        ).fetchone()
         if row:
             return row
         return {"address": None, "payment_method": None}
+
 
 def update_user_profile(address: str, payment_method: str) -> None:
     """Update or insert the user profile."""
@@ -194,10 +208,10 @@ def update_user_profile(address: str, payment_method: str) -> None:
         if row:
             conn.execute(
                 "UPDATE user_profile SET address = %s, payment_method = %s WHERE id = 1",
-                (address, payment_method)
+                (address, payment_method),
             )
         else:
             conn.execute(
                 "INSERT INTO user_profile (id, address, payment_method) VALUES (1, %s, %s)",
-                (address, payment_method)
+                (address, payment_method),
             )

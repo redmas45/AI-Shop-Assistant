@@ -1,7 +1,9 @@
 """
 Pydantic models for API request/response validation.
 """
+
 from typing import Any, Literal, Optional
+
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
@@ -27,7 +29,9 @@ class UIAction(BaseModel):
 
         if action == "SHOW_PRODUCTS":
             product_ids = params.get("product_ids")
-            if not isinstance(product_ids, list) or not all(isinstance(pid, int) for pid in product_ids):
+            if not isinstance(product_ids, list) or not all(
+                isinstance(pid, int) for pid in product_ids
+            ):
                 raise ValueError("SHOW_PRODUCTS requires product_ids: list[int]")
 
         elif action in ("ADD_TO_CART", "SHOW_PRODUCT_DETAIL"):
@@ -43,7 +47,12 @@ class UIAction(BaseModel):
                 raise ValueError("NAVIGATE_TO requires page: str")
 
         elif action == "SORT_PRODUCTS":
-            if params.get("sort_by") not in {"price_asc", "price_desc", "rating", "newest"}:
+            if params.get("sort_by") not in {
+                "price_asc",
+                "price_desc",
+                "rating",
+                "newest",
+            }:
                 raise ValueError("SORT_PRODUCTS requires a supported sort_by value")
 
         elif action == "CLEAR_FILTERS":
@@ -57,9 +66,10 @@ class UIAction(BaseModel):
                 raise ValueError("REMOVE_FROM_CART requires product_id: int")
 
         elif action == "CHECKOUT":
-            pass # No strict parameter requirements
+            pass  # No strict parameter requirements
 
         return self
+
 
 class CheckoutRequest(BaseModel):
     address: str = "N/A"
@@ -67,32 +77,32 @@ class CheckoutRequest(BaseModel):
 
 
 class ShopResponse(BaseModel):
-    transcript:    str            = Field(..., description="What the customer said")
-    response_text: str            = Field(..., description="Assistant's spoken response")
-    intent:        str            = Field(..., description="Detected customer intent")
-    confidence:    float          = Field(..., ge=0.0, le=1.0)
-    ui_actions:    list[UIAction] = Field(default_factory=list)
-    audio_b64:     str            = Field("", description="Base64-encoded WAV audio")
-    latency_ms:    dict[str, float] = Field(default_factory=dict)
+    transcript: str = Field(..., description="What the customer said")
+    response_text: str = Field(..., description="Assistant's spoken response")
+    intent: str = Field(..., description="Detected customer intent")
+    confidence: float = Field(..., ge=0.0, le=1.0)
+    ui_actions: list[UIAction] = Field(default_factory=list)
+    audio_b64: str = Field("", description="Base64-encoded WAV audio")
+    latency_ms: dict[str, float] = Field(default_factory=dict)
 
 
 class ProductResponse(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
-    id:             int
-    name:           str
-    brand:          str
-    category_name:  str
-    description:    str
-    price:          float
+    id: int
+    name: str
+    brand: str
+    category_name: str
+    description: str
+    price: float
     original_price: Optional[float] = None
-    color:          Optional[str]   = None
-    size_options:   Optional[str]   = None
-    tags:           Optional[str]   = None
-    rating:         float
-    review_count:   int
-    stock:          int
-    image_url:      Optional[str]   = None
+    color: Optional[str] = None
+    size_options: Optional[str] = None
+    tags: Optional[str] = None
+    rating: float
+    review_count: int
+    stock: int
+    image_url: Optional[str] = None
 
 
 class HealthResponse(BaseModel):
